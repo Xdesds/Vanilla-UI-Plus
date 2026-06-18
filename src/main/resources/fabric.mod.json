@@ -1,0 +1,44 @@
+{
+	"schemaVersion": 1,
+	"id": "vanillaui",
+	"version": "${version}",
+	"name": "VanillaUi+",
+	"description": "Subtle, vanilla-friendly UI animation polish for Minecraft.",
+	"authors": [
+		"VanillaUi+ Contributors"
+	],
+	"contact": {
+		"homepage": "https://modrinth.com/mod/vanillaui-plus",
+		"sources": "https://github.com/vanillaui-plus/vanillaui-plus"
+	},
+	"license": "MIT",
+	"icon": "assets/vanillaui/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"vanilla.ui.plus.VanillaUi"
+		],
+		"client": [
+			"vanilla.ui.plus.client.VanillaUiClient"
+		],
+		"modmenu": [
+			"vanilla.ui.plus.client.compat.VanillaUiModMenu"
+		]
+	},
+	"mixins": [
+		"vanillaui.mixins.json",
+		{
+			"config": "vanillaui.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.18.4",
+		"minecraft": "~1.21.4",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": ">=13.0.0"
+	}
+}
