@@ -8,6 +8,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MessageSignature;
 import net.minecraft.util.FormattedCharSequence;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -16,6 +17,9 @@ import vanilla.ui.plus.client.handler.HudAnimationHandler;
 
 @Mixin(ChatComponent.class)
 public abstract class ChatComponentMixin {
+	@Shadow
+	private int chatScrollbarPos;
+
 	@Inject(method = "addMessage(Lnet/minecraft/network/chat/Component;)V", at = @At("HEAD"))
 	private void vanillaUiPlus$onSimpleMessage(Component message, CallbackInfo ci) {
 		HudAnimationHandler.onChatMessageAdded();
@@ -28,7 +32,12 @@ public abstract class ChatComponentMixin {
 
 	@Inject(method = "render", at = @At("HEAD"))
 	private void vanillaUiPlus$beforeRender(GuiGraphics graphics, int tickCount, int mouseX, int mouseY, boolean focused, CallbackInfo ci) {
-		HudAnimationHandler.beginChatRender();
+		HudAnimationHandler.beginChatRender(chatScrollbarPos);
+	}
+
+	@Inject(method = "scrollChat", at = @At("HEAD"))
+	private void vanillaUiPlus$onScrollChat(int scroll, CallbackInfo ci) {
+		HudAnimationHandler.onChatScrolled();
 	}
 
 	@Redirect(

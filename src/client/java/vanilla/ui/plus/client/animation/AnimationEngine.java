@@ -26,11 +26,15 @@ public final class AnimationEngine {
 	}
 
 	public float progress() {
+		return easing.apply(rawProgress());
+	}
+
+	public float rawProgress() {
 		if (durationNanos <= 0L) {
 			return 1.0F;
 		}
 		float raw = (System.nanoTime() - startNanos) / (float) durationNanos;
-		return easing.apply(Mth.clamp(raw, 0.0F, 1.0F));
+		return Mth.clamp(raw, 0.0F, 1.0F);
 	}
 
 	public boolean isDone() {

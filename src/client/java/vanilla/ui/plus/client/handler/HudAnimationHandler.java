@@ -13,6 +13,7 @@ import java.util.function.Function;
 import net.minecraft.client.gui.Font;
 import vanilla.ui.plus.client.animation.AnimationEngine;
 import vanilla.ui.plus.client.animation.AnimationManager;
+import vanilla.ui.plus.client.config.AnimationProfileConfig;
 import vanilla.ui.plus.client.render.RenderUtilities;
 import net.minecraft.util.FormattedCharSequence;
 
@@ -46,6 +47,10 @@ public final class HudAnimationHandler {
 	private static long foodLastNanos = System.nanoTime();
 	private static int chatLineRenderIndex;
 	private static int animatedChatLines;
+	private static float chatScrollVisual;
+	private static int chatScrollTarget;
+	private static float chatScrollPulse;
+	private static long chatLastNanos = System.nanoTime();
 
 	private HudAnimationHandler() {
 	}
@@ -73,8 +78,9 @@ public final class HudAnimationHandler {
 		if (Float.isNaN(hotbarSelectionX)) {
 			hotbarSelectionX = target;
 		}
-		hotbarSelectionX = AnimationEngine.damp(hotbarSelectionX, target, delta, AnimationManager.getInstance().hudResponse());
-		hotbarSelectionPulse = AnimationEngine.damp(hotbarSelectionPulse, 0.0F, elapsedSeconds(Clock.HOTBAR), 12.0F);
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().hotbarProfile;
+		hotbarSelectionX = AnimationEngine.damp(hotbarSelectionX, target, delta, response(profile, AnimationManager.getInstance().hudResponse()));
+		hotbarSelectionPulse = AnimationEngine.damp(hotbarSelectionPulse, 0.0F, elapsedSeconds(Clock.HOTBAR), response(profile, 12.0F));
 	}
 
 	public static void afterHotbar(GuiGraphics graphics) {
@@ -86,7 +92,9 @@ public final class HudAnimationHandler {
 			return;
 		}
 		float offsetX = hotbarSelectionOffset();
-		float scale = 1.0F + hotbarSelectionPulse * 0.075F;
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().hotbarProfile;
+		float scaleAmount = profile == null ? 0.075F : Math.max(0.0F, profile.scale);
+		float scale = 1.0F + hotbarSelectionPulse * scaleAmount;
 		graphics.pose().pushPose();
 		graphics.pose().translate(x + width * 0.5F + offsetX, y + height * 0.5F, 0.0F);
 		graphics.pose().scale(scale, scale, 1.0F);
@@ -158,9 +166,10 @@ public final class HudAnimationHandler {
 
 	public static void beforeNotification(GuiGraphics graphics) {
 		if (enabled() && AnimationManager.getInstance().config().notificationAnimations) {
-			notificationAnimation = ensure(notificationAnimation, 190L);
+			AnimationProfileConfig profile = AnimationManager.getInstance().config().notificationProfile;
+			notificationAnimation = ensure(notificationAnimation, duration(profile, 190L));
 			graphics.pose().pushPose();
-			RenderUtilities.applyHudPanelTransform(graphics, notificationAnimation.progress(), -8.0F, 0.025F);
+			RenderUtilities.applyProfileTransform(graphics, graphics.guiWidth(), graphics.guiHeight(), profile, notificationAnimation.rawProgress());
 			notificationPushed = true;
 		}
 	}
@@ -187,9 +196,10 @@ public final class HudAnimationHandler {
 		if (!enabled()) {
 			return;
 		}
-		tabAnimation = ensure(tabAnimation, 170L);
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().notificationProfile;
+		tabAnimation = ensure(tabAnimation, duration(profile, 170L));
 		graphics.pose().pushPose();
-		RenderUtilities.applyHudPanelTransform(graphics, tabAnimation.progress(), -14.0F, 0.035F);
+		RenderUtilities.applyProfileTransform(graphics, graphics.guiWidth(), graphics.guiHeight(), profile, tabAnimation.rawProgress());
 		tabPushed = true;
 	}
 
@@ -205,13 +215,23 @@ public final class HudAnimationHandler {
 		if (!enabled()) {
 			return;
 		}
-		chatAnimation = ensure(chatAnimation, 190L);
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().chatProfile;
+		chatAnimation = ensure(chatAnimation, duration(profile, 190L));
 		chatAnimation.restart();
 		animatedChatLines = 3;
 	}
 
-	public static void beginChatRender() {
+	public static void beginChatRender(int scrollbarPos) {
 		chatLineRenderIndex = 0;
+		chatScrollTarget = scrollbarPos;
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().chatProfile;
+		float delta = elapsedSeconds(Clock.CHAT);
+		chatScrollVisual = AnimationEngine.damp(chatScrollVisual, chatScrollTarget, delta, response(profile, 16.0F));
+		chatScrollPulse = AnimationEngine.damp(chatScrollPulse, 0.0F, delta, response(profile, 12.0F));
+	}
+
+	public static void onChatScrolled() {
+		chatScrollPulse = 1.0F;
 	}
 
 	public static int renderChatMessageLine(GuiGraphics graphics, Font font, FormattedCharSequence text, int x, int y, int color) {
@@ -219,13 +239,32 @@ public final class HudAnimationHandler {
 		if (!enabled() || chatAnimation == null || chatAnimation.isDone() || lineIndex >= animatedChatLines) {
 			return graphics.drawString(font, text, x, y, color);
 		}
-		float progress = chatAnimation.progress();
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().chatProfile;
+		float progress = AnimationManager.getInstance().easing().apply(chatAnimation.rawProgress());
+		if (profile != null) {
+			progress = vanilla.ui.plus.client.animation.EasingUtilities.byName(profile.easing).apply(chatAnimation.rawProgress());
+		}
 		int alpha = color >>> 24;
-		int animatedAlpha = Mth.clamp((int) (alpha * Math.max(0.18F, progress)), 0, 255);
+		float opacity = profile == null ? 1.0F : profile.opacity;
+		int animatedAlpha = Mth.clamp((int) (alpha * Math.max(0.18F, 1.0F - (1.0F - progress) * opacity)), 0, 255);
 		int animatedColor = (animatedAlpha << 24) | (color & 0x00FFFFFF);
 		graphics.pose().pushPose();
-		graphics.pose().translate((1.0F - progress) * -8.0F, (1.0F - progress) * 3.0F, 0.0F);
+		TextAnimationHandler.pushSuppress();
+		float offsetX = profile == null ? -8.0F : (profile.offsetX == 0.0F ? -8.0F : profile.offsetX);
+		float offsetY = profile == null ? 3.0F : profile.offsetY;
+		float scrollOffset = (chatScrollVisual - chatScrollTarget) * 9.0F;
+		if (chatScrollPulse > 0.01F) {
+			scrollOffset += (float) Math.sin(chatScrollPulse * Math.PI) * (profile == null ? 0.0F : profile.elasticStrength);
+		}
+		float scale = profile == null ? 1.0F : 1.0F - (1.0F - progress) * profile.scale;
+		graphics.pose().translate((1.0F - progress) * offsetX, (1.0F - progress) * offsetY + scrollOffset, 0.0F);
+		if (scale != 1.0F) {
+			graphics.pose().translate(x, y, 0.0F);
+			graphics.pose().scale(scale, scale, 1.0F);
+			graphics.pose().translate(-x, -y, 0.0F);
+		}
 		int result = graphics.drawString(font, text, x, y, animatedColor);
+		TextAnimationHandler.popSuppress();
 		graphics.pose().popPose();
 		return result;
 	}
@@ -245,7 +284,8 @@ public final class HudAnimationHandler {
 			return;
 		}
 		graphics.pose().pushPose();
-		RenderUtilities.applyHudPanelTransform(graphics, scoreboardAnimation.progress(), 0.0F, 0.02F);
+		AnimationProfileConfig profile = AnimationManager.getInstance().config().notificationProfile;
+		RenderUtilities.applyProfileTransform(graphics, graphics.guiWidth(), graphics.guiHeight(), profile, scoreboardAnimation.rawProgress());
 		scoreboardPushed = true;
 	}
 
@@ -279,6 +319,25 @@ public final class HudAnimationHandler {
 		return animation;
 	}
 
+	private static long duration(AnimationProfileConfig profile, long fallback) {
+		if (profile == null) {
+			return fallback;
+		}
+		float speed = Math.max(0.1F, AnimationManager.getInstance().config().animationSpeed * profile.speedMultiplier);
+		long duration = profile.durationMillis + profile.delayMillis;
+		if (AnimationManager.getInstance().config().performanceMode) {
+			duration = Math.min(duration, 140L);
+		}
+		return Math.max(35L, (long) (duration / speed));
+	}
+
+	private static float response(AnimationProfileConfig profile, float fallback) {
+		if (profile == null) {
+			return fallback;
+		}
+		return 1000.0F / Math.max(20.0F, profile.durationMillis / Math.max(0.1F, profile.speedMultiplier));
+	}
+
 	private static float elapsedSeconds(Clock clock) {
 		long now = System.nanoTime();
 		long last = switch (clock) {
@@ -286,6 +345,7 @@ public final class HudAnimationHandler {
 			case XP -> xpLastNanos;
 			case HEALTH -> healthLastNanos;
 			case FOOD -> foodLastNanos;
+			case CHAT -> chatLastNanos;
 		};
 		float seconds = Math.min(0.1F, (now - last) / 1_000_000_000.0F);
 		switch (clock) {
@@ -293,6 +353,7 @@ public final class HudAnimationHandler {
 			case XP -> xpLastNanos = now;
 			case HEALTH -> healthLastNanos = now;
 			case FOOD -> foodLastNanos = now;
+			case CHAT -> chatLastNanos = now;
 		}
 		return seconds;
 	}
@@ -322,6 +383,7 @@ public final class HudAnimationHandler {
 		HOTBAR,
 		XP,
 		HEALTH,
-		FOOD
+		FOOD,
+		CHAT
 	}
 }

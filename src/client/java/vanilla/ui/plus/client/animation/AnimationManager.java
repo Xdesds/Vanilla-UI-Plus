@@ -42,6 +42,12 @@ public final class AnimationManager {
 	}
 
 	public float hudResponse() {
-		return config.performanceMode ? 10.0F : 14.0F * Math.max(0.1F, config.animationSpeed);
+		float quality = switch (config.animationQuality) {
+			case "low" -> 0.75F;
+			case "medium" -> 0.9F;
+			case "ultra" -> 1.15F;
+			default -> 1.0F;
+		};
+		return config.performanceMode ? 10.0F : 14.0F * Math.max(0.1F, config.animationSpeed) * quality;
 	}
 }

@@ -4,6 +4,10 @@
 	"compatibilityLevel": "JAVA_21",
 	"client": [
 		"ScreenMixin",
+		"ButtonMixin",
+		"ButtonPressMixin",
+		"GuiGraphicsMixin",
+		"AbstractScrollAreaMixin",
 		"AbstractContainerScreenMixin",
 		"GuiMixin",
 		"PlayerTabOverlayMixin",

@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import vanilla.ui.plus.client.handler.ItemAnimationHandler;
 
 @Mixin(AbstractContainerScreen.class)
@@ -23,5 +24,12 @@ public abstract class AbstractContainerScreenMixin {
 	@Inject(method = "renderSlot", at = @At("RETURN"))
 	private void vanillaUiPlus$afterSlot(GuiGraphics graphics, Slot slot, CallbackInfo ci) {
 		ItemAnimationHandler.afterSlot(graphics);
+	}
+
+	@Inject(method = "mouseClicked", at = @At("HEAD"))
+	private void vanillaUiPlus$onMouseClicked(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
+		if (button == 0 || button == 1) {
+			ItemAnimationHandler.onSlotClicked(hoveredSlot);
+		}
 	}
 }

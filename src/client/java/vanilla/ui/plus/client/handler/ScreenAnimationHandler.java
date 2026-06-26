@@ -9,7 +9,8 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import vanilla.ui.plus.client.animation.AnimationEngine;
 import vanilla.ui.plus.client.animation.AnimationManager;
-import vanilla.ui.plus.client.animation.AnimationType;
+import vanilla.ui.plus.client.config.AnimationProfileConfig;
+import vanilla.ui.plus.client.config.ScreenAnimationCategory;
 import vanilla.ui.plus.client.config.VanillaUiConfig;
 import vanilla.ui.plus.client.render.RenderUtilities;
 
@@ -51,6 +52,7 @@ public final class ScreenAnimationHandler {
 	};
 	private static final Set<Screen> CLOSING_SCREENS = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
 	private static final Set<Screen> FINISHING_CLOSE = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+	private static Screen transformedScreen;
 
 	private ScreenAnimationHandler() {
 	}
@@ -60,7 +62,8 @@ public final class ScreenAnimationHandler {
 		if (isSupported(screen, manager.config())) {
 			CLOSING_SCREENS.remove(screen);
 			FINISHING_CLOSE.remove(screen);
-			manager.registry().restart(screen, manager.screenDurationMillis(), manager.easing());
+			TextAnimationHandler.restartScreenText();
+			manager.registry().restart(screen, durationMillis(screen, manager.config()), manager.easing());
 		}
 	}
 
@@ -77,39 +80,53 @@ public final class ScreenAnimationHandler {
 		}
 		if (!CLOSING_SCREENS.contains(screen)) {
 			CLOSING_SCREENS.add(screen);
-			manager.registry().restart(screen, manager.screenDurationMillis(), manager.easing());
+			manager.registry().restart(screen, durationMillis(screen, manager.config()), manager.easing());
 		}
 		return true;
 	}
 
-	public static boolean beforeRender(Screen screen, GuiGraphics graphics) {
+	public static boolean shouldAnimate(Screen screen) {
 		AnimationManager manager = AnimationManager.getInstance();
 		VanillaUiConfig config = manager.config();
 		if (!isSupported(screen, config)) {
 			return false;
 		}
 
-		AnimationEngine animation = manager.registry().getOrCreate(screen, manager.screenDurationMillis(), manager.easing());
+		AnimationProfileConfig profile = config.screenProfile(ScreenAnimationCategory.fromScreen(screen));
+		AnimationEngine animation = manager.registry().getOrCreate(screen, durationMillis(screen, config), manager.easing());
 		boolean closing = CLOSING_SCREENS.contains(screen);
 		if (animation.isDone() && !closing) {
 			return false;
 		}
+		return true;
+	}
 
+	public static boolean beginForegroundTransform(Screen screen, GuiGraphics graphics) {
+		if (transformedScreen == screen || !shouldAnimate(screen)) {
+			return false;
+		}
+		AnimationManager manager = AnimationManager.getInstance();
+		VanillaUiConfig config = manager.config();
+		AnimationProfileConfig profile = config.screenProfile(ScreenAnimationCategory.fromScreen(screen));
+		AnimationEngine animation = manager.registry().getOrCreate(screen, durationMillis(screen, config), manager.easing());
+		boolean closing = CLOSING_SCREENS.contains(screen);
 		graphics.pose().pushPose();
-		float progress = closing ? 1.0F - animation.progress() : animation.progress();
-		RenderUtilities.applyScreenTransform(graphics, screen.width, screen.height, AnimationType.FADE_SLIDE, progress);
+		float progress = closing ? 1.0F - animation.rawProgress() : animation.rawProgress();
+		RenderUtilities.applyProfileTransform(graphics, screen.width, screen.height, profile, progress);
+		transformedScreen = screen;
 		return true;
 	}
 
 	public static void afterRender(Screen screen, GuiGraphics graphics, boolean transformed) {
 		if (transformed) {
+			transformedScreen = null;
 			graphics.pose().popPose();
 			RenderUtilities.resetShaderColor();
 		}
 		if (CLOSING_SCREENS.contains(screen)) {
 			AnimationEngine animation = AnimationManager.getInstance().registry().getOrCreate(
 				screen,
-				AnimationManager.getInstance().screenDurationMillis(),
+				durationMillis(screen, AnimationManager.getInstance().config()),
 				AnimationManager.getInstance().easing()
 			);
 			if (animation.isDone()) {
@@ -119,8 +136,16 @@ public final class ScreenAnimationHandler {
 		}
 	}
 
+	public static boolean shouldSkipTransformedBackground(Screen screen) {
+		return false;
+	}
+
 	private static boolean isSupported(Screen screen, VanillaUiConfig config) {
 		if (!config.screenAnimations || screen == null) {
+			return false;
+		}
+		AnimationProfileConfig profile = config.screenProfile(ScreenAnimationCategory.fromScreen(screen));
+		if (profile == null || !profile.enabled) {
 			return false;
 		}
 		if (screen instanceof vanilla.ui.plus.client.config.VanillaUiConfigScreen) {
@@ -133,5 +158,15 @@ public final class ScreenAnimationHandler {
 			}
 		}
 		return name.startsWith("net.minecraft.client.gui.screens.");
+	}
+
+	private static long durationMillis(Screen screen, VanillaUiConfig config) {
+		AnimationProfileConfig profile = config.screenProfile(ScreenAnimationCategory.fromScreen(screen));
+		float speed = Math.max(0.1F, config.animationSpeed * profile.speedMultiplier);
+		long duration = profile.durationMillis + profile.delayMillis;
+		if (config.performanceMode) {
+			duration = Math.min(duration, 140L);
+		}
+		return Math.max(35L, (long) (duration / speed));
 	}
 }
